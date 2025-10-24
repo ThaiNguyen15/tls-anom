@@ -1,0 +1,1 @@
+ingest/        # pcap -> zeekfeatures/      # zeek logs -> features.csv/parquetchecks/        # quality testsheuristics/    # rule enginemodels/        # iforest, autoencoder nh?eval/          # metrics, plotsreport:        # ROC/PR, Precision@K, alert samples
