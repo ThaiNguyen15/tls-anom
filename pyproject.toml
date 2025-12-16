@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tls-anom"
+version = "0.1.0"
+description = "Modular TLS anomaly detection pipeline"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{name="Thai Nguyen"}]
+dependencies = [
+  "pandas>=2.0",
+  "numpy>=1.26",
+  "scikit-learn>=1.3",
+  "pyyaml>=6.0",
+  "click>=8.1",
+  "joblib>=1.4",
+]
+
+[project.scripts]
+tls-anom = "tls_anom.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

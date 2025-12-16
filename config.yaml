@@ -1,0 +1,27 @@
+paths:
+raw_dir: data/raw/zeek
+processed_dir: data/processed
+features_dir: data/features
+models_dir: data/models
+outputs_dir: outputs
+logs_dir: logs
+
+
+pipeline:
+stages: [extract, label, featurize, preprocess, train, predict, evaluate]
+
+
+features:
+sni_hash_bits: 16
+numeric:
+- pkt_per_flow
+- bytes_per_flow
+- sni_hash
+
+
+model:
+kind: isolation_forest
+params:
+n_estimators: 200
+contamination: 0.01
+random_state: 42
