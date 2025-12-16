@@ -1,0 +1,16 @@
+{
+  "[python]": {
+    "editor.defaultFormatter": "ms-python.black-formatter",
+    "editor.formatOnSave": true
+  },
+  "python.formatting.provider": "none",
+
+  "files.autoSave": "afterDelay",
+  "files.autoSaveDelay": 1000,
+
+  // (khuyên dùng) trỏ đúng binary black trong venv của project
+  "black-formatter.path": [
+    "${workspaceFolder}/.venv/bin/black"
+  ],
+  "black-formatter.args": ["--line-length", "100"]
+}

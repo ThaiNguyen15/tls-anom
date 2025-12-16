@@ -1,0 +1,32 @@
+paths:
+  raw_dir: data/raw
+  processed_dir: data/processed
+  features_dir: data/features
+  models_dir: data/models
+  outputs_dir: outputs
+  logs_dir: logs
+  zeek_dir: data/processed/zeek
+
+pipeline:
+  stages: [extract, label, featurize, preprocess, train, predict, evaluate]
+
+features:
+  sni_hash_bits: 16
+  numeric:
+    - pkt_per_flow
+    - bytes_per_flow
+    - sni_hash
+model:
+  kind: iforest
+  contamination: 0.01   # hoặc 0.02–0.05 nếu muốn bắt nhạy hơn
+  train_on: normal
+
+# model:
+#   kind: lightgbm   # or "iforest"
+#   contamination: 0.03
+#   params:
+#     n_estimators: 500
+#     learning_rate: 0.05
+#     num_leaves: 64
+#     subsample: 0.8
+#     colsample_bytree: 0.8
