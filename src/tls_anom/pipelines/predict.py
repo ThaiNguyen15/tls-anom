@@ -3,18 +3,26 @@ import joblib
 from sklearn.metrics import classification_report
 
 
-def run(ctx, scaled_csv: str, model_path: str, output_path: str = None):
+def run(
+    ctx,
+    feature_csv: str,
+    model_path: str,
+    scaler_path: str,
+):
     """
-    Predict anomaly scores on PREPROCESSED (scaled) dataset.
-    Assumes model was trained on the same feature space.
+    Predict anomaly scores and PRINT results to console.
     """
+
     logger = ctx.logger
 
     logger.info(f"[predict] loading model from {model_path}")
     model = joblib.load(model_path)
 
-    logger.info(f"[predict] loading data from {scaled_csv}")
-    df = pd.read_csv(scaled_csv)
+    logger.info(f"[predict] loading scaler from {scaler_path}")
+    scaler = joblib.load(scaler_path)
+
+    logger.info(f"[predict] loading features from {feature_csv}")
+    df = pd.read_csv(feature_csv)
 
     # -----------------------------
     # Separate label if exists
@@ -26,27 +34,39 @@ def run(ctx, scaled_csv: str, model_path: str, output_path: str = None):
     else:
         X = df
 
+    # safety
+    X = X.fillna(0)
+
+    # scale
+    X_scaled = scaler.transform(X)
+
     logger.info("[predict] running inference...")
 
-    # IsolationForest:
-    # decision_function → higher = more normal
-    # predict → 1 = normal, -1 = anomaly
-    scores = model.decision_function(X)
-    raw_preds = model.predict(X)
+    # decision_function: higher = more normal
+    normal_score = model.decision_function(X_scaled)
 
-    # Convert to anomaly label:
-    # 1 = anomaly, 0 = normal
-    preds = (raw_preds == -1).astype(int)
+    # anomaly score: higher = more anomalous
+    anomaly_score = -normal_score
 
-    # -----------------------------
-    # Attach results
-    # -----------------------------
-    df_out = df.copy()
-    df_out["anomaly_score"] = scores
-    df_out["pred"] = preds
+    # predict: 1 = normal, -1 = anomaly
+    raw_preds = model.predict(X_scaled)
+    preds = (raw_preds == -1).astype(int)   # 1 = anomaly
 
     # -----------------------------
-    # Optional evaluation
+    # SUMMARY
+    # -----------------------------
+    total = len(preds)
+    anomaly_cnt = int(preds.sum())
+    anomaly_rate = anomaly_cnt / total if total > 0 else 0.0
+
+    logger.info(
+        f"[predict] SUMMARY | total={total}, "
+        f"anomaly={anomaly_cnt}, "
+        f"rate={anomaly_rate:.4%}"
+    )
+
+    # -----------------------------
+    # OPTIONAL: classification report
     # -----------------------------
     if y_true is not None:
         logger.info(
@@ -56,11 +76,26 @@ def run(ctx, scaled_csv: str, model_path: str, output_path: str = None):
         )
 
     # -----------------------------
-    # Save
+    # PRINT TOP ANOMALIES
     # -----------------------------
-    if output_path:
-        df_out.to_csv(output_path, index=False)
-        logger.info(f"[predict] result saved to {output_path}")
+    df_dbg = df.copy()
+    df_dbg["anomaly_score"] = anomaly_score
+    df_dbg["pred"] = preds
+
+    logger.info("[predict] TOP 10 anomalies:")
+    print(
+        df_dbg.sort_values("anomaly_score", ascending=False)
+        .head(10)[
+            [
+                "ja3_reuse_cnt",
+                "iat_mean",
+                "iat_std",
+                "iat_cv",
+                "iat_cnt",
+                "anomaly_score",
+            ]
+        ]
+    )
 
     logger.info("[predict] DONE.")
-    return df_out
+    return df_dbg

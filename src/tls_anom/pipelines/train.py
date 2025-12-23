@@ -1,112 +1,160 @@
+import os
 import pandas as pd
 import joblib
-from sklearn.ensemble import IsolationForest
-from sklearn.model_selection import train_test_split
 import lightgbm as lgb
-from lightgbm import early_stopping, log_evaluation
+from sklearn.ensemble import IsolationForest
+from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import classification_report, roc_auc_score
 
-def train_isolation_forest(normal_csv: str, model_path: str, contamination: float = 0.01):
-    """
-    Train IsolationForest model using ONLY normal traffic.
-    
-    Args:
-        normal_csv (str): path to normal.scaled.csv
-        model_path (str): output model file (joblib)
-        contamination (float): expected anomaly percentage (~0.01 = 1%)
 
-    Returns:
-        model (IsolationForest): trained model
-    """
+# ==========================================================
+# Stage 1: Isolation Forest
+# ==========================================================
 
-    print(f"[+] Loading NORMAL dataset: {normal_csv}")
-    df = pd.read_csv(normal_csv)
+def train_iforest(
+    feature_csv: str,
+    model_path: str,
+    scaler_path: str,
+    contamination: float,
+):
+    print(f"[train][iforest] loading {feature_csv}")
+    X = pd.read_csv(feature_csv).fillna(0)
 
-    # Remove label column if exists
-    df = df.drop(columns=["label"], errors="ignore")
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
 
-    print(f"[+] Training IsolationForest (contamination={contamination})")
     model = IsolationForest(
         n_estimators=300,
         contamination=contamination,
-        bootstrap=True,
         random_state=42,
-        n_jobs=-1
+        n_jobs=-1,
     )
 
-    model.fit(df)
+    model.fit(X_scaled)
 
-    print(f"[+] Saving model → {model_path}")
     joblib.dump(model, model_path)
+    joblib.dump(scaler, scaler_path)
 
-    print("[+] DONE: Model trained successfully.")
-    return model
+    print(f"[train][iforest] saved model -> {model_path}")
+    print(f"[train][iforest] saved scaler -> {scaler_path}")
 
-def run(ctx, scaled_csv: str, model_path: str):
-    logger = ctx.logger
-    logger.info(f"[train] loading {scaled_csv}")
+    return model, scaler
 
-    df = pd.read_csv(scaled_csv)
 
-    # label nếu có (supervised)
-    if "label" in df.columns:
-        y = df["label"].astype(int)
-        X = df.drop(columns=["label"])
+def compute_iforest_score(df, model, scaler):
+    X_scaled = scaler.transform(df.fillna(0))
+    return -model.decision_function(X_scaled)
+
+
+# ==========================================================
+# Stage 2: LightGBM
+# ==========================================================
+
+def train_lgbm(df: pd.DataFrame, model_path: str):
+    from sklearn.model_selection import train_test_split
+    from sklearn.metrics import classification_report
+    import numpy as np
+    import lightgbm as lgb
+    import joblib
+
+    y = df["label"].astype(int)
+    X = df.drop(columns=["label"])
+
+    X_train, X_val, y_train, y_val = train_test_split(
+        X,
+        y,
+        test_size=0.2,
+        random_state=42,
+        stratify=y if y.nunique() > 1 else None,
+    )
+
+    model = lgb.LGBMClassifier(
+        n_estimators=300,
+        learning_rate=0.05,
+        num_leaves=64,
+        subsample=0.8,
+        colsample_bytree=0.8,
+        class_weight={0: 1, 1: 2000},  # quan trọng cho imbalance
+        random_state=42,
+    )
+
+    model.fit(X_train, y_train)
+
+    # ✅ SAVE MODEL LUÔN – KHÔNG PHỤ THUỘC METRIC
+    joblib.dump(model, model_path)
+    print(f"[train][lgbm] model saved -> {model_path}")
+
+    # -----------------------------
+    # OPTIONAL EVALUATION (SAFE)
+    # -----------------------------
+    print("\n[train][lgbm] validation report:")
+    y_pred = model.predict(X_val)
+    print(classification_report(y_val, y_pred, digits=4, zero_division=0))
+
+    # AUC chỉ tính nếu đủ 2 class
+    if len(np.unique(y_val)) > 1:
+        from sklearn.metrics import roc_auc_score
+        y_prob = model.predict_proba(X_val)[:, 1]
+        print("AUC:", roc_auc_score(y_val, y_prob))
     else:
-        y = None
-        X = df
-
-    model_kind = ctx.cfg["model"]["kind"]
+        print("[train][lgbm] AUC skipped (only one class in validation)")
 
 
-    # ==========================================================
-    # 1) TRAIN ISOLATION FOREST (unsupervised)
-    # ==========================================================
+
+# ==========================================================
+# Main entry (CLI calls this)
+# ==========================================================
+
+def run(ctx, feature_csv: str, lgbm_csv: str, model_path: str, scaler_path: str):
+    cfg = ctx.cfg
+    model_kind = cfg["model"]["kind"]
+    contamination = cfg["model"].get("contamination", 0.01)
+
+    models_dir = cfg["paths"]["models_dir"]
+    os.makedirs(models_dir, exist_ok=True)
+
+    # ==================================================
+    # IF ONLY
+    # ==================================================
     if model_kind == "iforest":
-        model = train_isolation_forest(
-            normal_csv=scaled_csv, 
+        train_iforest(
+            feature_csv=feature_csv,   # normal.features.csv
             model_path=model_path,
-            contamination=ctx.cfg["model"].get("contamination", 0.01)
+            scaler_path=scaler_path,
+            contamination=contamination,
         )
         return
 
-    # ==========================================================
-    # 2) TRAIN LIGHTGBM (supervised)
-    # ==========================================================
-    if model_kind == "lightgbm":
-        if y is None:
-            raise RuntimeError("Supervised model requires labels.")
+    # ==================================================
+    # IF → LGBM (requires labeled dataset)
+    # ==================================================
+    if model_kind == "iforest_lgbm":
+        print(f"[train][iforest_lgbm] loading labeled data from {lgbm_csv}")
+        df = pd.read_csv(lgbm_csv).fillna(0)
 
-        X_train, X_val, y_train, y_val = train_test_split(
-            X, y, test_size=0.2, random_state=42, stratify=y
+        if "label" not in df.columns:
+            raise RuntimeError(
+                "iforest_lgbm requires labeled dataset "
+                "(normal + c2 with label column)"
+            )
+
+        iforest, scaler = train_iforest(
+            feature_csv=feature_csv,
+            model_path=model_path.replace(".joblib", ".iforest.joblib"),
+            scaler_path=scaler_path,
+            contamination=contamination,
         )
 
-        params = ctx.cfg["model"].get("params", {})
-
-        gbm = lgb.LGBMClassifier(
-            n_estimators=params.get("n_estimators", 500),
-            learning_rate=params.get("learning_rate", 0.05),
-            num_leaves=params.get("num_leaves", 64),
-            subsample=params.get("subsample", 0.8),
-            colsample_bytree=params.get("colsample_bytree", 0.8),
-            objective="binary",
-            boosting_type="gbdt",
-            random_state=42
+        # ---- compute anomaly score ----
+        df["anomaly_score"] = compute_iforest_score(
+            df.drop(columns=["label"]), iforest, scaler
         )
 
-        logger.info("[train] training LightGBM...")
-
-        gbm.fit(
-            X_train, y_train,
-            eval_set=[(X_val, y_val)],
-            eval_metric="auc",
-            callbacks=[
-                early_stopping(stopping_rounds=50),
-                log_evaluation(period=20),
-            ]
+        # ---- train LGBM ----
+        train_lgbm(
+            df=df,
+            model_path=model_path.replace(".joblib", ".lgbm.joblib"),
         )
-
-        joblib.dump(gbm, model_path)
-        logger.info(f"[train] LightGBM saved to {model_path}")
         return
 
-    raise RuntimeError(f"Unknown model kind: {model_kind}")

@@ -2,8 +2,8 @@
 set -euo pipefail
 shopt -s globstar nullglob
 
-RAW_DIR="/raw/mix"
-OUT_DIR="/output/mix"
+RAW_DIR="/raw/normal"
+OUT_DIR="/output/normal"
 CONFIG="/config/zeek_tls_json.zeek"
 
 echo "[+] Zeek version:"
@@ -14,7 +14,7 @@ zkg list || true
 echo "[+] Scanning PCAPs under $RAW_DIR ..."
 found_any=false
 
-for pcap in $RAW_DIR/**/*.{pcap,pcapng}; do
+for pcap in $RAW_DIR/**/Monday-cutp1.{pcap,pcapng}; do
   [ -e "$pcap" ] || continue
   found_any=true
 

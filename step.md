@@ -9,11 +9,17 @@ pip install -e .
 
 input → processed
 tls-anom run \
-  --dataset data/processed/zeek3/mix \
-  --name mix \
-  --stages extract \
+  --dataset data/processed/zeek4/normal \
+  --name normal \
+  --stages extract,featurize,train \
   --config config/default.yaml
 
+tls-anom run \
+  --dataset data/processed/zeek4/normal \
+  --name normal \
+  --stages featurize \
+  --mode train
+  --config config/default.yaml
 
 Step: label
 tls-anom run --dataset data/raw/mix.csv --name mix --stages label
@@ -21,24 +27,18 @@ tls-anom run --dataset data/raw/mix.csv --name mix --stages label
 tls-anom run \
   --dataset data/processed/zeek3/normal \
   --name normal \
-  --stages label,featurize \
-  --config config/default.yaml
-
-tls-anom run \
-  --dataset data/processed/zeek3/normal \
-  --name normal \
-  --stages preprocess \
+  --stages featurize \
   --config config/default.yaml
 
 tls-anom run \
   --dataset data/features \
-  --name botnet \
+  --name normal \
   --stages train \
   --config config/default.yaml
 
 tls-anom run \
   --dataset data/features \
-  --name botnet \
+  --name normal \
   --stages predict
 
 
@@ -50,7 +50,7 @@ tls-anom run \
 
 normal
 tls-anom run \
-  --dataset data/processed/zeek3/normal \
+  --dataset data/processed/zeek4 \
   --name normal \
-  --stages featurize,preprocess  \
+  --stages featurize  \
   --config config/default.yaml

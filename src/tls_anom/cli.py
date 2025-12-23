@@ -8,7 +8,7 @@ def cli():
 
 @cli.command()
 @click.option("--dataset", required=True, help="Path to zeek")
-@click.option("--name", required=True, type=click.Choice(["normal","mix","botnet"]))
+@click.option("--name", required=True, type=click.Choice(["normal","mix","botnet","test"]))
 @click.option("--config", "config_path", default="config/default.yaml")
 @click.option("--env", "overlay", default=None, help="Optional overlay config, e.g., config/dev.yaml")
 @click.option("--stages", default=None, help="Comma-separated stages to run")
@@ -34,28 +34,47 @@ def run(dataset, name, config_path, overlay, stages):
     feat_csv = os.path.join(ctx.cfg["paths"]["features_dir"], f"{name}.features.csv")
     if "featurize" in stage_list:
         featurize.run(ctx, labeled_csv, feat_csv)
+    lgbm_csv = "data/features/stage2.lgbm.csv"
+    # scaled_csv = os.path.join(ctx.cfg["paths"]["features_dir"], f"{name}.scaled.csv")
+    # if "preprocess" in stage_list:
+    #     preprocess.run(ctx, feat_csv, scaled_csv)
 
-    scaled_csv = os.path.join(ctx.cfg["paths"]["features_dir"], f"{name}.scaled.csv")
-    if "preprocess" in stage_list:
-        preprocess.run(ctx, feat_csv, scaled_csv)
+    models_dir = ctx.cfg["paths"]["models_dir"]
+    os.makedirs(models_dir, exist_ok=True)
 
-    model_name = ctx.cfg["model"].get("train_on", "normal")
+    model_kind = ctx.cfg["model"]["kind"]   # iforest | lightgbm
 
     model_path = os.path.join(
-        ctx.cfg["paths"]["models_dir"],
-        f"{model_name}.{ctx.cfg['model']['kind']}.joblib"
+        models_dir,
+        f"{model_kind}.iforest.joblib"
     )
 
+    scaler_path = os.path.join(
+        models_dir,
+        f"{model_kind}.scaler.joblib"
+    )
     if "train" in stage_list:
-        train.run(ctx, scaled_csv, model_path)
+        train.run(
+            ctx,
+            feature_csv=feat_csv,
+            lgbm_csv=lgbm_csv,
+            model_path=model_path,
+            scaler_path=scaler_path,
+        )
 
     pred_csv = os.path.join(ctx.cfg["paths"]["outputs_dir"], "predictions", f"{name}.pred.csv")
     os.makedirs(os.path.dirname(pred_csv), exist_ok=True)
     if "predict" in stage_list:
-        predict.run(ctx, scaled_csv, model_path, pred_csv)
+        predict.run(
+            ctx,
+            feature_csv=lgbm_csv,            # c2_features.csv
+            model_path=model_path,
+            scaler_path=scaler_path
+        )
+
 
     if "evaluate" in stage_list:
-        evaluate.run(ctx, scaled_csv, model_path, pred_csv)
+        evaluate.run(ctx, feat_csv, model_path, pred_csv)
 
     logger.info("Pipeline finished.")
 

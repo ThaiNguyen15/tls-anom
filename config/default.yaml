@@ -17,9 +17,16 @@ features:
     - bytes_per_flow
     - sni_hash
 model:
-  kind: iforest
+  kind: iforest_lgbm
   contamination: 0.01   # hoặc 0.02–0.05 nếu muốn bắt nhạy hơn
   train_on: normal
+
+input:
+  feature_csv: data/features/normal.features.csv
+
+alert:
+  threshold: 0.05    # SOC-style low threshold
+  top_k: 5
 
 # model:
 #   kind: lightgbm   # or "iforest"

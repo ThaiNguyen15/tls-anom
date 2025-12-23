@@ -3,7 +3,24 @@ import numpy as np
 import math
 from collections import Counter
 from tls_anom.utils.io import write_csv
+import pandas as pd
+import joblib
+import os
 
+def fit_frequency(df):
+    return {
+        "ja3_freq": df["ja3"].value_counts().to_dict(),
+        "sni_freq": df["sni"].value_counts().to_dict(),
+    }
+
+def apply_frequency(df, freq_model):
+    df["ja3_freq"] = df["ja3"].apply(
+        lambda x: freq_model["ja3_freq"].get(x, 0)
+    )
+    df["sni_freq"] = df["sni"].apply(
+        lambda x: freq_model["sni_freq"].get(x, 0)
+    )
+    return df
 
 # ================================
 # Utility functions
@@ -31,115 +48,126 @@ def rarity(series: pd.Series) -> pd.Series:
     counts = series.value_counts()
     return series.map(lambda x: 1.0 / counts[x] if x in counts else 0.0)
 
+def add_temporal_features(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Beaconing features per (src_ip, ja3)
+    """
+
+    required_cols = {"ts_ssl", "id.orig_h_ssl", "ja3"}
+    missing = required_cols - set(df.columns)
+    if missing:
+        raise ValueError(f"[featurize] missing columns: {missing}")
+
+    df = df.sort_values(["id.orig_h_ssl", "ja3", "ts_ssl"])
+
+    df["iat"] = df.groupby(["id.orig_h_ssl", "ja3"])["ts_ssl"].diff()
+    df["iat"] = df["iat"].fillna(0)
+
+    agg = (
+        df.groupby(["id.orig_h_ssl", "ja3"])["iat"]
+        .agg(
+            iat_mean="mean",
+            iat_std="std",
+            iat_cnt="count"
+        )
+        .reset_index()
+    )
+
+    agg["iat_cv"] = agg["iat_std"] / (agg["iat_mean"] + 1e-6)
+
+    return df.merge(agg, on=["id.orig_h_ssl", "ja3"], how="left")
 
 # ================================
 # Main featurizer
 # ================================
 
-def run(ctx, csv_in: str, out_features_csv: str):
+def run(
+    ctx,
+    csv_in: str,
+    out_features_csv: str,
+    mode: str = "train",              # train | predict
+    freq_model_path: str = "models/freq_model.joblib",
+):
     logger = ctx.logger
-    logger.info(f"[featurize] loading {csv_in}")
+    logger.info(f"[featurize] mode={mode} input={csv_in}")
 
     df = pd.read_csv(csv_in)
 
-    # Normalize missing
+    # =====================
+    # basic normalization
+    # =====================
     df = df.fillna({"server_name": "", "ja3": "", "ja3s": ""})
+    df["sni"] = df["server_name"].astype(str)
 
-    # ====================================
-    # FLOW-LEVEL FEATURES
-    # ====================================
-    df["duration"] = df.get("duration", 0).astype(float)
+    # =====================
+    # TLS identity
+    # =====================
+    df["ja3_int"] = df["ja3"].apply(hash_str)
+    df["ja3s_int"] = df["ja3s"].apply(hash_str)
 
-    df["orig_bytes"] = df.get("orig_bytes", 0).astype(float)
-    df["resp_bytes"] = df.get("resp_bytes", 0).astype(float)
-    df["byte_ratio"] = df["orig_bytes"] / (df["resp_bytes"] + 1)
-
-    df["orig_pkts"] = df.get("orig_pkts", 0).astype(float)
-    df["resp_pkts"] = df.get("resp_pkts", 0).astype(float)
-
-    # ====================================
-    # TLS METADATA FEATURES
-    # ====================================
-
-    # Convert JA3 / JA3S to hashed ints
-    df["ja3_int"] = df["ja3"].apply(lambda x: hash_str(x, bits=18))
-    df["ja3s_int"] = df["ja3s"].apply(lambda x: hash_str(x, bits=18))
-
-    # Version (convert to numeric)
-    df["tls_version_int"] = df.get("version", "").apply(hash_str)
-
-    # Cipher list length
-    if "ciphers" in df.columns:
-        df["cipher_count"] = df["ciphers"].apply(
-            lambda x: len(str(x).split(",")) if isinstance(x, str) else 0
-        )
-    else:
-        df["cipher_count"] = 0
-
-    # TLS extensions count
-    if "client_extensions" in df.columns:
-        df["ext_count"] = df["client_extensions"].apply(
-            lambda x: len(str(x).split(",")) if isinstance(x, str) else 0
-        )
-    else:
-        df["ext_count"] = 0
-
-    # ====================================
-    # SNI FEATURES
-    # ====================================
-
-    df["sni"] = df.get("server_name", "").astype(str)
-    df["sni_len"] = df["sni"].apply(lambda x: len(x))
+    # =====================
+    # SNI behavior
+    # =====================
+    df["sni_len"] = df["sni"].str.len()
     df["sni_entropy"] = df["sni"].apply(entropy)
     df["sni_is_ip"] = df["sni"].apply(lambda x: x.replace(".", "").isdigit())
 
-    # SNI rarity
-    df["sni_rarity"] = rarity(df["sni"])
+    # =====================
+    # TEMPORAL (beaconing)
+    # =====================
+    df = add_temporal_features(df)
 
-    # JA3 rarity (quan trọng!)
-    df["ja3_rarity"] = rarity(df["ja3"])
+    # =====================
+    # FREQUENCY (PHASED)
+    # =====================
+    if mode == "train":
+        logger.info("[featurize] fitting frequency model (NORMAL)")
+        freq_model = fit_frequency(df)
+        os.makedirs(os.path.dirname(freq_model_path), exist_ok=True)
+        joblib.dump(freq_model, freq_model_path)
+        logger.info(f"[featurize] saved freq model -> {freq_model_path}")
 
-    # ====================================
-    # CERTIFICATE FEATURES (optional)
-    # ====================================
+        # during training, freq not used directly
+        df["ja3_freq"] = 0
+        df["sni_freq"] = 0
 
-    if "certificate_chain_fuids" in df.columns:
-        df["cert_cnt"] = df["certificate_chain_fuids"].apply(
-            lambda x: len(str(x).split(",")) if isinstance(x, str) else 0
-        )
+    elif mode == "predict":
+        logger.info("[featurize] applying frequency model")
+        freq_model = joblib.load(freq_model_path)
+        df = apply_frequency(df, freq_model)
+
     else:
-        df["cert_cnt"] = 0
+        raise ValueError("mode must be 'train' or 'predict'")
 
-    # ====================================
-    # SELECT OUTPUT FEATURES
-    # ====================================
+    # =====================
+    # JA3 reuse
+    # =====================
+    df["ja3_reuse_cnt"] = (
+        df.groupby(["id.orig_h_ssl", "ja3"])["ja3"].transform("count")
+    )
 
+    # =====================
+    # SELECT FEATURES
+    # =====================
     feature_cols = [
-        # Flow-level
-        "duration", "orig_bytes", "resp_bytes",
-        "byte_ratio", "orig_pkts", "resp_pkts",
-
-        # TLS metadata
-        "ja3_int", "ja3s_int",
-        "tls_version_int", "cipher_count", "ext_count",
-
-        # SNI behavior
-        "sni_len", "sni_entropy", "sni_is_ip",
-        "sni_rarity",
-
-        # JA3 behavior
-        "ja3_rarity",
-
-        # Cert features
-        "cert_cnt",
+        "ja3_int",
+        "ja3s_int",
+        "sni_len",
+        "sni_entropy",
+        "sni_is_ip",
+        "ja3_freq",
+        "sni_freq",
+        "ja3_reuse_cnt",
+        "iat_mean",
+        "iat_std",
+        "iat_cv",
+        "iat_cnt",
     ]
 
-    # Check missing columns
     for c in feature_cols:
         if c not in df.columns:
             df[c] = 0
 
-    out = df[feature_cols].copy()  # keep label for next stage
-
+    out = df[feature_cols]
     write_csv(out, out_features_csv)
     logger.info(f"[featurize] saved -> {out_features_csv} ({len(out)} rows)")
