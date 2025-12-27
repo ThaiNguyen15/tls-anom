@@ -9,9 +9,9 @@ pip install -e .
 
 input → processed
 tls-anom run \
-  --dataset data/processed/zeek4/normal \
-  --name normal \
-  --stages extract,featurize,train \
+  --dataset data/processed/zeek4/botnet/all \
+  --name botnet \
+  --stages extract,featurize \
   --config config/default.yaml
 
 tls-anom run \

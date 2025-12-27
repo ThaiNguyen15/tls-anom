@@ -3,7 +3,7 @@
 
 @load ja3
 
-redef Log::default_logdir = "/outputs/normal";
+# redef Log::default_logdir = "/outputs/botnet";
 
 # Xuất JSON-line cho an toàn
 redef LogAscii::use_json = T;

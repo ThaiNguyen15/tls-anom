@@ -22,7 +22,7 @@ model:
   train_on: normal
 
 input:
-  feature_csv: data/features/normal.features.csv
+  feature_csv: data/features/stage2.lgbm.csv
 
 alert:
   threshold: 0.05    # SOC-style low threshold

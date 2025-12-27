@@ -67,7 +67,7 @@ def run(dataset, name, config_path, overlay, stages):
     if "predict" in stage_list:
         predict.run(
             ctx,
-            feature_csv=lgbm_csv,            # c2_features.csv
+            feature_csv=lgbm_csv,            # lgbm.csv
             model_path=model_path,
             scaler_path=scaler_path
         )

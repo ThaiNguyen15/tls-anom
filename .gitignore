@@ -11,5 +11,4 @@ dist/
 build/
 outputs/
 logs/
-data/raw
-data/processed
+data/
