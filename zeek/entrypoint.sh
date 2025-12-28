@@ -2,8 +2,8 @@
 set -euo pipefail
 shopt -s globstar nullglob
 
-RAW_DIR="/raw/botnet"          # Thay thành /raw/normal khi cần
-OUT_DIR="/outputs/botnet"       # Thay thành /output/normal khi cần
+RAW_DIR="/raw/"          # Thay thành /raw/normal khi cần
+OUT_DIR="/outputs/"       # Thay thành /output/normal khi cần
 CONFIG="/config/zeek_tls_json.zeek"
 ALL_DIR="$OUT_DIR/all"
 
@@ -13,8 +13,6 @@ ALL_X509="$ALL_DIR/x509.log"
 
 mkdir -p "$OUT_DIR"
 mkdir -p "$ALL_DIR"
-echo "[+] Zeek version:"
-zeek --version || true
 
 echo "[+] Processing all PCAP files in $RAW_DIR ..."
 
@@ -38,9 +36,6 @@ for pcap in "$RAW_DIR"/**/*.{pcap,pcapng}; do
 
   # Chạy Zeek, ghi log thẳng vào thư mục riêng theo tên file
   zeek -C -r "$pcap" "$CONFIG" Log::default_logdir="$ds_out"
-
-  echo "    [*] Logs generated:"
-  ls -lh "$ds_out"/*.log 2>/dev/null || echo "    (no logs generated for this PCAP)"
 done
 
 if [ "$found_any" = false ]; then

@@ -5,5 +5,5 @@ RUN zkg refresh && yes | zkg install zeek/salesforce/ja3 && zkg load ja3
 
 RUN echo "@load ja3" >> /usr/local/zeek/share/zeek/site/local.zeek
 
-RUN cp . .
+COPY . .
 CMD ["./entrypoint.sh"]

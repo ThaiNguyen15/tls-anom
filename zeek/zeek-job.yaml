@@ -1,0 +1,24 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: zeek-batch
+spec:
+  backoffLimit: 1
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: zeek
+        image: thainguyen15/c2-anom:zeek1
+        volumeMounts:
+        - name: raw
+          mountPath: /raw
+        - name: zeek-out
+          mountPath: /outputs
+      volumes:
+      - name: raw
+        persistentVolumeClaim:
+          claimName: ml-models
+      - name: zeek-out
+        persistentVolumeClaim:
+          claimName: ml-models

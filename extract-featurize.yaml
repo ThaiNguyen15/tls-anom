@@ -1,0 +1,29 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: tls-anom-featurize
+spec:
+  backoffLimit: 1
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: featurize
+        image: tls-anom:latest
+        args:
+          - run
+          - --dataset
+          - /data/zeek/all/data.csv
+          - --name
+          - normal
+          - --stages
+          - extract,featurize
+          - --config
+          - /app/config/default.yaml
+        volumeMounts:
+        - name: zeek-out
+          mountPath: /data/zeek
+      volumes:
+      - name: zeek-out
+        persistentVolumeClaim:
+          claimName: ml-models
